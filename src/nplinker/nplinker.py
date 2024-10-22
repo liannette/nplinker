@@ -356,11 +356,11 @@ class NPLinker:
         with open(file, "wb") as f:
             pickle.dump(data, f)
 
-    def export_objects(self, objects: BGC | Spectrum, filename: str) -> None:
+    def export_objects(self, objects: Sequence[BGC | Spectrum], filename: str) -> None:
         """Exports the data for a list of BGC or Spectrum objects to a specified file in tab-separated format.
 
         Args:
-            objects (BGC | Spectrum): A list of BGC or Spectrum objects to be exported.
+            objects (list[BGC | Spectrum]): A list of BGC or Spectrum objects to be exported.
             filename (str): The name of the file where the data will be saved.
         """
         headers = objects[0].to_dict().keys()

@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from functools import wraps
 from os import PathLike
+from typing import Any
 from typing import Union
 from networkx import Graph
 from tabulate import tabulate
@@ -299,7 +300,7 @@ class LinkGraph:
             lg.add_link(u, v, **link_data)
 
     @staticmethod
-    def link_to_dict(link: LINK, index: int) -> dict[str, any]:
+    def link_to_dict(link: LINK, index: int) -> dict[str, Any]:
         """Convert a link to a dictionary representation.
 
         Args:
@@ -332,7 +333,7 @@ class LinkGraph:
             "rosetta_score": round(rosetta_score.value, 2) if rosetta_score else "",
         }
 
-    def get_table_data(self, display_limit: int | None = None) -> list[dict[str, any]]:
+    def get_table_data(self, display_limit: int | None = None) -> list[dict[str, Any]]:
         """Generate the table data for the LinkGraph.
 
         This method iterates over the links in the LinkGraph and constructs a table
@@ -372,7 +373,7 @@ class LinkGraph:
             stralign="right",
         )
 
-        if len(self.links) > display_limit:
+        if display_limit is not None and len(self.links) > display_limit:
             truncated_info = f"...\n[ {len(self.links)} links ]"
             table += f"\n{truncated_info}"
 

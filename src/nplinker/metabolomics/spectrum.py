@@ -1,6 +1,7 @@
 from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING
+from typing import Any
 import numpy as np
 from nplinker.strain import Strain
 from nplinker.strain import StrainCollection
@@ -98,7 +99,7 @@ class Spectrum:
         """
         return strain in self.strains
 
-    def to_dict(self) -> dict[str, any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the Spectrum object to a dictionary for exporting results.
 
         This method compiles relevant information from the Spectrum object into a dictionary format.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
+from typing import Any
 from deprecated import deprecated
 from nplinker.strain import Strain
 from .aa_pred import predict_aa
@@ -193,7 +194,7 @@ class BGC:
                     self._aa_predictions[p[0]] = p[1]
         return [self._aa_predictions]
 
-    def to_dict(self) -> dict[str, any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the BGC object to a dictionary for exporting results.
 
         This method compiles relevant information from the BGC object and formats it into a dictionary.
@@ -203,7 +204,7 @@ class BGC:
             A dictionary containing the following key-value pairs:
             - GCF_id (set): A set of GCF IDs.
             - GCF_bigscape_class (set): A set of BiG-SCAPE classes.
-            - strain_id (str): The ID of the strain.
+            - strain_id (str | None): The ID of the strain.
             - description (str | None): A description of the BGC.
             - BGC_name (str): The name of the BGC.
             - product_prediction (tuple): (predicted) natural products or product classes of the BGC.
@@ -214,7 +215,7 @@ class BGC:
         return {
             "GCF_id": {gcf.id for gcf in self.parents if gcf.id is not None},
             "GCF_bigscape_class": {bsc for bsc in self.bigscape_classes if bsc is not None},
-            "strain_id": self.strain.id,
+            "strain_id": self.strain.id if self.strain is not None else None,
             "description": self.description,
             "BGC_name": self.id,
             "product_prediction": self.product_prediction,
