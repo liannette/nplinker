@@ -198,44 +198,21 @@ class LinkGraph:
 
         self._g.add_edge(u, v, **data)
 
-    @validate_uv
-    def has_link(self, u: Entity, v: Entity) -> bool:
-        """Check if there is a link between two objects.
+    def export_links(self, file: str | PathLike) -> None:
+        """Exports the links in the LinkGraph to a file.
 
         Args:
-            u: the first object, either a GCF, Spectrum, or MolecularFamily
-            v: the second object, either a GCF, Spectrum, or MolecularFamily
-
-        Returns:
-            True if there is a link between the two objects, False otherwise
+            file: the file to write the links to.
 
         Examples:
-            >>> lg.has_link(gcf, spectrum)
-            True
+            >>> lg.print_links("links.tsv")
         """
-        return self._g.has_edge(u, v)
-
-    @validate_uv
-    def get_link_data(
-        self,
-        u: Entity,
-        v: Entity,
-    ) -> LINK_DATA | None:
-        """Get the data for a link between two objects.
-
-        Args:
-            u: the first object, either a GCF, Spectrum, or MolecularFamily
-            v: the second object, either a GCF, Spectrum, or MolecularFamily
-
-        Returns:
-            A dictionary of scoring methods and their data for the link between the two objects, or
-            None if there is no link between the two objects.
-
-        Examples:
-            >>> lg.get_link_data(gcf, spectrum)
-            {"metcalf": Score("metcalf", 1.0, {"cutoff": 0.5})}
-        """
-        return self._g.get_edge_data(u, v)  # type: ignore
+        table_data = self.get_table_data()
+        headers = table_data[0].keys()
+        with open(file, "w") as f:
+            f.write("\t".join(headers) + "\n")
+            for row in table_data:
+                f.write("\t".join(str(row[h]) for h in headers) + "\n")
 
     def filter(self, u_nodes: Sequence[Entity], v_nodes: Sequence[Entity] = [], /) -> LinkGraph:
         """Return a new LinkGraph object with the filtered links between the given objects.
@@ -281,23 +258,66 @@ class LinkGraph:
 
         return lg
 
-    @validate_u
-    def _filter_one_node(self, u: Entity, lg: LinkGraph) -> None:
-        """Filter the links for a given object and add them to the new LinkGraph object."""
-        try:
-            links = self[u]
-        except KeyError:
-            pass
-        else:
-            for node2, value in links.items():
-                lg.add_link(u, node2, **value)
+    @validate_uv
+    def get_link_data(
+        self,
+        u: Entity,
+        v: Entity,
+    ) -> LINK_DATA | None:
+        """Get the data for a link between two objects.
+
+        Args:
+            u: the first object, either a GCF, Spectrum, or MolecularFamily
+            v: the second object, either a GCF, Spectrum, or MolecularFamily
+
+        Returns:
+            A dictionary of scoring methods and their data for the link between the two objects, or
+            None if there is no link between the two objects.
+
+        Examples:
+            >>> lg.get_link_data(gcf, spectrum)
+            {"metcalf": Score("metcalf", 1.0, {"cutoff": 0.5})}
+        """
+        return self._g.get_edge_data(u, v)  # type: ignore
+
+    def get_table_data(self, display_limit: int | None = None) -> list[dict[str, Any]]:
+        """Generate the table data for the LinkGraph.
+
+        This method iterates over the links in the LinkGraph and constructs a table
+        containing information about genomic and metabolomic objects, as well as their
+        associated scores. Each row in the table represents a link between a genomic
+        object and a metabolomic object.
+
+        Args:
+            display_limit (int | None): The maximum number of rows to include in the
+                table. If None, all rows are included.
+
+        Returns:
+            A list of dictionaries containing the table data.
+        """
+        table_data = []
+        for index, link in enumerate(self.links, start=1):
+            table_data.append(self.link_to_dict(link, index))
+            if display_limit is not None and index == display_limit:
+                break
+        return table_data
 
     @validate_uv
-    def _filter_two_nodes(self, u: Entity, v: Entity, lg: LinkGraph) -> None:
-        """Filter the links between two objects and add them to the new LinkGraph object."""
-        link_data = self.get_link_data(u, v)
-        if link_data is not None:
-            lg.add_link(u, v, **link_data)
+    def has_link(self, u: Entity, v: Entity) -> bool:
+        """Check if there is a link between two objects.
+
+        Args:
+            u: the first object, either a GCF, Spectrum, or MolecularFamily
+            v: the second object, either a GCF, Spectrum, or MolecularFamily
+
+        Returns:
+            True if there is a link between the two objects, False otherwise
+
+        Examples:
+            >>> lg.has_link(gcf, spectrum)
+            True
+        """
+        return self._g.has_edge(u, v)
 
     @staticmethod
     def link_to_dict(link: LINK, index: int) -> dict[str, Any]:
@@ -333,27 +353,23 @@ class LinkGraph:
             "rosetta_score": round(rosetta_score.value, 2) if rosetta_score else "",
         }
 
-    def get_table_data(self, display_limit: int | None = None) -> list[dict[str, Any]]:
-        """Generate the table data for the LinkGraph.
+    @validate_u
+    def _filter_one_node(self, u: Entity, lg: LinkGraph) -> None:
+        """Filter the links for a given object and add them to the new LinkGraph object."""
+        try:
+            links = self[u]
+        except KeyError:
+            pass
+        else:
+            for node2, value in links.items():
+                lg.add_link(u, node2, **value)
 
-        This method iterates over the links in the LinkGraph and constructs a table
-        containing information about genomic and metabolomic objects, as well as their
-        associated scores. Each row in the table represents a link between a genomic
-        object and a metabolomic object.
-
-        Args:
-            display_limit (int | None): The maximum number of rows to include in the
-                table. If None, all rows are included.
-
-        Returns:
-            A list of dictionaries containing the table data.
-        """
-        table_data = []
-        for index, link in enumerate(self.links, start=1):
-            table_data.append(self.link_to_dict(link, index))
-            if display_limit is not None and index == display_limit:
-                break
-        return table_data
+    @validate_uv
+    def _filter_two_nodes(self, u: Entity, v: Entity, lg: LinkGraph) -> None:
+        """Filter the links between two objects and add them to the new LinkGraph object."""
+        link_data = self.get_link_data(u, v)
+        if link_data is not None:
+            lg.add_link(u, v, **link_data)
 
     def _get_table_repr(self, display_limit: int | None = 60) -> str:
         """Generate a table representation of the LinkGraph.
@@ -378,19 +394,3 @@ class LinkGraph:
             table += f"\n{truncated_info}"
 
         return table
-
-    def export_links(self, file: str | PathLike) -> None:
-        """Exports the links in the LinkGraph to a file.
-
-        Args:
-            file: the file to write the links to.
-
-        Examples:
-            >>> lg.print_links("links.tsv")
-        """
-        table_data = self.get_table_data()
-        headers = table_data[0].keys()
-        with open(file, "w") as f:
-            f.write("\t".join(headers) + "\n")
-            for row in table_data:
-                f.write("\t".join(str(row[h]) for h in headers) + "\n")

@@ -117,18 +117,6 @@ class BGC:
         """Reduce function for pickling."""
         return (self.__class__, (self.id, *self.product_prediction), self.__dict__)
 
-    def add_parent(self, gcf: GCF) -> None:
-        """Add a parent GCF to the BGC.
-
-        Args:
-            gcf: gene cluster family
-        """
-        gcf.add_bgc(self)
-
-    def detach_parent(self, gcf: GCF) -> None:
-        """Remove a parent GCF."""
-        gcf.detach_bgc(self)
-
     @property
     def strain(self) -> Strain | None:
         """Get the strain of the BGC."""
@@ -162,6 +150,18 @@ class BGC:
         """
         return {p.bigscape_class for p in self.parents}
 
+    def add_parent(self, gcf: GCF) -> None:
+        """Add a parent GCF to the BGC.
+
+        Args:
+            gcf: gene cluster family
+        """
+        gcf.add_bgc(self)
+
+    def detach_parent(self, gcf: GCF) -> None:
+        """Remove a parent GCF."""
+        gcf.detach_bgc(self)
+
     def is_mibig(self) -> bool:
         """Check if the BGC is a MIBiG reference BGC or not.
 
@@ -173,26 +173,6 @@ class BGC:
             True if it's MIBiG reference BGC
         """
         return self.id.startswith("BGC")
-
-    # CG: why not providing whole product but only amino acid as product monomer?
-    # this property is not used in NPLinker core business.
-    @property
-    @deprecated(version="2.0.0", reason="This method will be removed soon")
-    def aa_predictions(self) -> list:
-        """Amino acids as predicted monomers of product.
-
-        Returns:
-            list of dicts with key as amino acid and value as prediction
-            probability.
-        """
-        # Load aa predictions and cache them
-        self._aa_predictions = None
-        if self._aa_predictions is None:
-            self._aa_predictions = {}
-            if self.antismash_file is not None:
-                for p in predict_aa(self.antismash_file):
-                    self._aa_predictions[p[0]] = p[1]
-        return [self._aa_predictions]
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the BGC object to a dictionary for exporting results.
@@ -223,3 +203,23 @@ class BGC:
             "antismash_id": self.antismash_id,
             "antismash_region": self.antismash_region,
         }
+
+    # CG: why not providing whole product but only amino acid as product monomer?
+    # this property is not used in NPLinker core business.
+    @property
+    @deprecated(version="2.0.0", reason="This method will be removed soon")
+    def aa_predictions(self) -> list:
+        """Amino acids as predicted monomers of product.
+
+        Returns:
+            list of dicts with key as amino acid and value as prediction
+            probability.
+        """
+        # Load aa predictions and cache them
+        self._aa_predictions = None
+        if self._aa_predictions is None:
+            self._aa_predictions = {}
+            if self.antismash_file is not None:
+                for p in predict_aa(self.antismash_file):
+                    self._aa_predictions[p[0]] = p[1]
+        return [self._aa_predictions]
