@@ -1,4 +1,5 @@
 from __future__ import annotations
+import csv
 import logging
 import pickle
 from collections.abc import Sequence
@@ -355,3 +356,55 @@ class NPLinker:
         data = (self.bgcs, self.gcfs, self.spectra, self.mfs, self.strains, links)
         with open(file, "wb") as f:
             pickle.dump(data, f)
+
+    def objects_to_tsv(self, objects: Sequence[BGC] | Sequence[Spectrum], filename: str) -> None:
+        """Exports a list of BGC or Spectrum objects to a specified file in tab-separated format.
+
+        Args:
+            objects (list): A list of BGC or a list of Spectrum objects to be exported.
+            filename (str): The name of the file where the data will be saved.
+        """
+        if not objects:
+            raise ValueError("No objects provided to export")
+
+        # Ensure all elements in the list are of the same type
+        obj_type = type(objects[0])
+        if not all(isinstance(obj, obj_type) for obj in objects):
+            raise TypeError("All objects in the list must be of the same type")
+
+        headers = objects[0].to_dict().keys()
+        with open(self._output_dir / filename, "w", newline="") as outfile:
+            writer = csv.DictWriter(outfile, fieldnames=headers, delimiter="\t")
+            writer.writeheader()
+            for obj in objects:
+                row = obj.to_dict()
+                for header in headers:
+                    value = row[header]
+                    # Convert list, tuple, set to comma-separated string
+                    if isinstance(value, (list, tuple, set)):
+                        row[header] = ", ".join(map(str, value))
+                    # Convert dict to comma-separated string
+                    elif isinstance(value, dict):
+                        row[header] = ", ".join([f"{k}:{v}" for k, v in value.items()])
+                    # Convert anything else to string
+                    else:
+                        row[header] = str(value) if value else ""
+                    # Replace tabs with 4 spaces
+                    row[header] = row[header].replace("\t", "    ")
+                writer.writerow(row)
+
+    def to_tsv(self, lg: LinkGraph | None = None) -> None:
+        """Exports the results to the output directory in tab-separated format.
+
+        This method exports genomics and metabolomics data to their respective
+        TSV files in the specified output directory. If a LinkGraph object is
+        provided, it also exports the links data to a TSV file.
+
+        Args:
+            lg (LinkGraph | None): An optional LinkGraph object. If provided,
+                       the links data will be exported to 'links.tsv'.
+        """
+        self.objects_to_tsv(self.bgcs, "genomics_data.tsv")
+        self.objects_to_tsv(self.spectra, "metabolomics_data.tsv")
+        if lg is not None:
+            lg.to_tsv(self._output_dir / "links.tsv")
