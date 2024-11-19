@@ -3,6 +3,7 @@ import json
 import logging
 from os import PathLike
 from jsonschema import validate
+from nplinker.genomics.antismash import AntismashBGCLoader
 from nplinker.schemas import USER_STRAINS_SCHEMA
 from ..genomics.utils import extract_mappings_original_genome_id_resolved_genome_id
 from ..genomics.utils import extract_mappings_resolved_genome_id_bgc_id
@@ -138,3 +139,118 @@ def podp_generate_strain_mappings(
     logger.info("Generated strain mappings JSON file: %s", output_json_file)
 
     return sc
+
+
+def extract_strain_metadata(strain_path: str | PathLike) -> dict:
+    """This function extracts strain metadata from a tab-separated file.
+    Can be used for the strain_id ---> genome_id mapping or strain_id ---> spectra_id mapping.
+
+    Args:
+        strain_path: _path to the tab-separated file_
+
+    Returns:
+        dictionary: _a dictionary with the strain_id as key and the genome_id or spectra_id as value_
+
+
+    Example:
+    StrainID    GenomeID
+    strain1     genome1
+    strain2     genome2
+
+    Returns:
+    {'strain1': 'genome1', 'strain2': 'genome2'}
+
+    """
+    dictionary = {}
+    with open(strain_path, "r") as file:
+        for line in file:
+            key, value = map(str.strip, line.strip().split("\t"))
+            if key in dictionary:
+                if isinstance(dictionary[key], list):
+                    dictionary[key].append(value)
+                else:
+                    dictionary[key] = [dictionary[key], value]
+            else:
+                dictionary[key] = value
+    return dictionary
+
+
+def extract_bgcs_genome_id(strain_genome: dict, bgc_path: str | PathLike):
+    """Extract bgcs based on the strain_genome mapping.
+
+    Args:
+        strain_genome: dict that comes from extract_strain_metadata function
+        bgc_path: path of the folder of antismash results
+    """
+    bgc_loader = AntismashBGCLoader(bgc_path)
+    bgc_dict = bgc_loader.get_genome_bgcs_mapping()
+
+    # Make a dict for the bgcs based on the strain_id
+    strain_bgcs = {}
+
+    for strain_id, genome_id in strain_genome.items():
+        if genome_id in bgc_dict:
+            strain_bgcs[strain_id] = bgc_dict[genome_id]
+
+    return bgc_dict, strain_bgcs
+
+
+def extract_features_metabolome_id(strain_spectra: dict, features_file: str | PathLike):
+    """Extract features based on the strain_spectra mapping.
+
+    Args:
+        strain_spectra: dict that comes from extract_strain_metadata function
+        features_file: path of file of the gnps results
+    """
+    features_dict = extract_mappings_ms_filename_spectrum_id(features_file)
+    strain_features = {}
+    for strain_id, spectra in strain_spectra.items():
+        if strain_id == "StrainID":
+            continue
+        if isinstance(spectra, str):
+            spectra = [spectra]
+        features_set = set()
+
+        for spectrum in spectra:
+            if spectrum in features_dict:
+                features_set.update(features_dict[spectrum])
+
+        # Convert the set to a sorted list and add to the result_dict
+        strain_features[strain_id] = sorted(features_set)
+
+    # Output the result
+    return strain_features
+
+
+def create_strain_mappings(strain_genome: dict, bgc_dict: dict, strain_features: dict):
+    """Creates a JSON file with the strain mappings for NPLinker.
+
+    Args:
+        strain_genome: dict that comes from extract_strain_metadata function
+        bgc_dict: from extract_bgcs_genome_id
+        strain_features: dict that comes from extract_strain_metadata function
+    """
+    strain_bgcs_features = {}
+
+    for strain_id, genome_id in strain_genome.items():
+        if strain_id in strain_features:
+            bgcs = bgc_dict.get(genome_id, [])
+            features = strain_features[strain_id]
+            strain_bgcs_features[strain_id] = bgcs + features
+
+    strain_mappings = {"version": 1.0, "strain_mappings": []}
+
+    # Populate the strain_mappings
+    for strain_id, strain_alias in strain_bgcs_features.items():
+        strain_mappings["strain_mappings"].append(
+            {"strain_id": strain_id, "strain_alias": strain_alias}
+        )
+
+    # Specify the file path where the JSON file will be saved
+    file_path = "strain_mappings_2.json"
+
+    # Write the new dictionary to a JSON file
+    with open(file_path, "w") as json_file:
+        json.dump(strain_mappings, json_file, indent=4)
+
+    return print(f"JSON file '{file_path}' has been created successfully.")
