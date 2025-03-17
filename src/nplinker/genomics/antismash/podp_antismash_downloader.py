@@ -129,12 +129,10 @@ def podp_download_and_extract_antismash_data(
 
     Args:
         genome_records: list of dicts representing genome records.
-
             The dict of each genome record contains a key of genome ID with a value
             of another dict containing information about genome type, label and
             accession ids (RefSeq, GenBank, and/or JGI).
-        project_download_root: Path to the directory to place
-            downloaded archive in.
+        project_download_root: Path to the directory to place downloaded archive in.
         project_extract_root: Path to the directory downloaded archive will be extracted to.
 
             Note that an `antismash` directory will be created in the specified
@@ -150,62 +148,12 @@ def podp_download_and_extract_antismash_data(
         Path(project_download_root).mkdir(parents=True, exist_ok=True)
 
     gs_file = Path(project_download_root, GENOME_STATUS_FILENAME)
-    gs_dict = GenomeStatus.read_json(gs_file)
 
-    for i, genome_record in enumerate(genome_records):
-        # get the best available ID from the dict
-        genome_id_data = genome_record["genome_ID"]
-        raw_genome_id = get_best_available_genome_id(genome_id_data)
-        if raw_genome_id is None or len(raw_genome_id) == 0:
-            logger.warning(f'Invalid input genome record "{genome_record}"')
-            continue
+    gs_dict = initialize_genome_status(genome_records, gs_file)
 
-        # check if genome ID exist in the genome status file
-        if raw_genome_id not in gs_dict:
-            gs_dict[raw_genome_id] = GenomeStatus(raw_genome_id)
+    resolve_assembly_accessions(gs_dict, genome_records, gs_file)
 
-        gs_obj = gs_dict[raw_genome_id]
-
-        logger.info(
-            f"Checking for antismash data {i + 1}/{len(genome_records)}, "
-            f"current genome ID={raw_genome_id}"
-        )
-        # first, check if BGC data is downloaded
-        if gs_obj.bgc_path and Path(gs_obj.bgc_path).exists():
-            logger.info(f"Genome ID {raw_genome_id} already downloaded to {gs_obj.bgc_path}")
-            continue
-        # second, check if lookup attempted previously
-        if gs_obj.resolve_attempted:
-            logger.info(f"Genome ID {raw_genome_id} skipped due to previous failed attempt")
-            continue
-
-        # if not downloaded or lookup attempted, then try to resolve the ID
-        # and download
-        logger.info(f"Start lookup process for genome ID {raw_genome_id}")
-        gs_obj.resolved_refseq_id = _resolve_refseq_id(genome_id_data)
-        gs_obj.resolve_attempted = True
-
-        if gs_obj.resolved_refseq_id == "":
-            # give up on this one
-            logger.warning(f"Failed lookup for genome ID {raw_genome_id}")
-            continue
-
-        # if resolved id is valid, try to download and extract antismash data
-        try:
-            download_and_extract_antismash_data(
-                gs_obj.resolved_refseq_id, project_download_root, project_extract_root
-            )
-
-            gs_obj.bgc_path = str(
-                Path(project_download_root, gs_obj.resolved_refseq_id + ".zip").absolute()
-            )
-
-            output_path = Path(project_extract_root, "antismash", gs_obj.resolved_refseq_id)
-            if output_path.exists():
-                Path.touch(output_path / "completed", exist_ok=True)
-
-        except Exception:
-            gs_obj.bgc_path = ""
+    fetch_and_process_antismash_db_data(gs_dict, project_download_root, project_extract_root, gs_file)
 
     # raise and log warning for failed downloads
     failed_ids = [gs.original_id for gs in gs_dict.values() if not gs.bgc_path]
@@ -216,11 +164,187 @@ def podp_download_and_extract_antismash_data(
         logger.warning(warning_message)
         warnings.warn(warning_message, UserWarning)
 
+    if len(failed_ids) == len(genome_records):
+        raise ValueError("No antiSMASH data found for any genome")
+
+
+def initialize_genome_status(
+    genome_records: Sequence[Mapping[str, Mapping[str, str]]], 
+    gs_file: str | PathLike
+) -> dict[str, GenomeStatus]:
+    """
+    Initialize the genome status dictionary from genome records.
+
+    This function processes a list of genome records, extracts the best available genome ID
+    from each record, and updates the genome status dictionary. If a genome ID does not exist
+    in the dictionary, a new entry with a default GenomeStatus object is added.
+
+    Args:
+        genome_records: A list of dictionaries representing genome records. 
+            Each dictionary contains a key `genome_ID` with a value that is another 
+            dictionary holding information about genome type, label, and accession 
+            IDs (e.g., RefSeq, GenBank, and/or JGI).
+        gs_file: Path to the genome status JSON file.
+
+    Returns:
+        A dictionary mapping genome IDs to GenomeStatus objects.
+    """
+    logger.info(f"Initializing genome status for {len(genome_records)} genome records.")
+
+    gs_dict = GenomeStatus.read_json(gs_file)
+    skipped_count = 0
+
+    for genome_record in genome_records:
+        # get the best available ID from the dict
+        genome_id_data = genome_record["genome_ID"]
+        raw_genome_id = get_best_available_genome_id(genome_id_data)
+        if not raw_genome_id:
+            logger.warning(f"Skipping invalid genome record: {genome_record}")
+            skipped_count += 1
+            continue
+        # check if genome ID exist in the genome status file
+        if raw_genome_id not in gs_dict:
+            gs_dict[raw_genome_id] = GenomeStatus(raw_genome_id)
+
     # save updated genome status to json file
     GenomeStatus.to_json(gs_dict, gs_file)
 
-    if len(failed_ids) == len(genome_records):
-        raise ValueError("No antiSMASH data found for any genome")
+    if skipped_count > 0:
+        logger.warning(f"Skipped {skipped_count} invalid genome records out of {len(genome_records)}.")
+
+    return gs_dict
+
+
+def resolve_assembly_accessions(
+    gs_dict: Mapping[str, GenomeStatus],
+    genome_records: Sequence[Mapping[str, Mapping[str, str]]],
+    gs_file: str | PathLike
+) -> None:
+    """
+    Resolve genome assembly accessions for genome records and update GenomeStatus.
+
+    This function processes a list of genome records to resolve genome assembly 
+    accessions (e.g., RefSeq IDs) and updates the corresponding GenomeStatus objects 
+    in the provided dictionary. It ensures that each genome's `resolved_refseq_id` 
+    and `resolve_attempted` attributes are updated based on the resolution process. 
+    The updated genome status information is then saved to a JSON file for persistence.
+
+    Args:
+        gs_dict: A dictionary mapping genome IDs to GenomeStatus objects. 
+        genome_records: A list of dictionaries representing genome records. 
+            Each dictionary contains a key `genome_ID` with a value that is another 
+            dictionary holding information about genome type, label, and accession 
+            IDs (e.g., RefSeq, GenBank, and/or JGI).
+        gs_file: Path to the genome status JSON file.
+
+    Returns:
+        None
+    """
+    logger.info("Resolving genome assembly accessions...")
+
+    successful_cnt = 0
+    unsuccessful_cnt = 0
+    skipped_cnt = 0
+
+    # Iterate through the genome records, because we need the genome ID data
+    for genome_record in genome_records:
+        genome_id_data = genome_record["genome_ID"]
+        genome_id = get_best_available_genome_id(genome_id_data)
+        gs_obj = gs_dict.get(genome_id)
+        if not gs_obj:
+            continue # because invalid genome
+
+        # check if lookup attempted previously
+        if gs_obj.resolve_attempted:
+            logger.info(f"Skipping {genome_id}: lookup already attempted previously")
+            skipped_cnt += 1
+            continue
+
+        # try to resolve the ID
+        gs_obj.resolved_refseq_id = _resolve_refseq_id(genome_id_data)
+        gs_obj.resolve_attempted = True
+        if gs_obj.resolved_refseq_id == "":
+            logger.warning(f"Failed to resolve genome assembly accession for {genome_id}")
+            unsuccessful_cnt += 1
+        else:
+            successful_cnt += 1
+
+    # save updated genome status to json file
+    GenomeStatus.to_json(gs_dict, gs_file)
+
+    logger.info(
+        "Genome assembly accession lookup completed. "
+        f"Successful: {successful_cnt}, Failed: {unsuccessful_cnt}, Skipped: {skipped_cnt}."
+        )
+
+
+def fetch_and_process_antismash_db_data(
+    gs_dict: Mapping[str, GenomeStatus],
+    project_download_root: str | PathLike,
+    project_extract_root: str | PathLike,
+    gs_file: str | PathLike
+) -> None:
+    """Fetch and process BGC data from the antiSMASH database.
+
+    This function attempts to download and extract BGC data from the antiSMASH database
+    for genomes that do not yet have BGC data paths and have a resolved RefSeq ID.
+    It logs the progress and any errors encountered during the process.
+
+    Args:
+        genome_records: A dictionary mapping genome IDs to GenomeStatus objects. 
+        project_download_root: The root directory where downloaded archive will be stored.
+        project_extract_root: Path to the directory the downloaded archive will be extracted to.
+            Note that an `antismash` directory will be created in the specified
+            `extract_root` if it doesn't exist. The files will be extracted to
+            `<extract_root>/antismash/<antismash_id>` directory.
+        gs_file: Path to the genome status JSON file.
+
+    Returns:
+        None
+    """
+    logger.info(
+        f"Attempting to fetch and process BGC data from antiSMASH-DB..."
+    )
+
+    successful_cnt = 0
+    unsuccessful_cnt = 0
+    skipped_cnt = 0
+
+    for genome_id, gs_obj in gs_dict.items():
+        if gs_obj.bgc_path and Path(gs_obj.bgc_path).exists():
+            logger.info(f"Genome ID {genome_id} already downloaded to {gs_obj.bgc_path}")
+            skipped_cnt += 1
+            continue
+        if not gs_obj.resolved_refseq_id:
+            skipped_cnt += 1
+            continue
+
+        try:
+            download_and_extract_antismash_data(
+                gs_obj.resolved_refseq_id, project_download_root, project_extract_root
+            )
+
+            output_path = Path(project_extract_root, "antismash", gs_obj.resolved_refseq_id)
+            Path.touch(output_path / "completed", exist_ok=True)
+
+            download_path = Path(project_download_root, gs_obj.resolved_refseq_id + ".zip").absolute()
+            gs_obj.bgc_path = str(download_path)
+
+            successful_cnt += 1
+        except Exception:
+            logger.warning(
+                f"Failed to fetch and process BGC data from antiSMASH-DB for {genome_id}"
+            )
+            gs_obj.bgc_path = ""
+            unsuccessful_cnt += 1
+
+    # save updated genome status to json file
+    GenomeStatus.to_json(gs_dict, gs_file)
+
+    logger.info(
+        f"antiSMASH-DB data retrieval completed. "
+        f"Successful: {successful_cnt}, Failed: {unsuccessful_cnt}, Skipped: {skipped_cnt}."
+    )
 
 
 def get_best_available_genome_id(genome_id_data: Mapping[str, str]) -> str | None:
