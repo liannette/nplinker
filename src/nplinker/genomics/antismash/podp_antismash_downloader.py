@@ -342,6 +342,9 @@ def retrieve_antismash_db_data(
             download_and_extract_antismash_data(
                 gs_obj.resolved_refseq_id, project_download_root, project_extract_root
             )
+            logger.info(
+                f"antiSMASH BGC data of {gs_obj.resolved_refseq_id} is downloaded and extracted."
+            )
 
             output_path = Path(project_extract_root, "antismash", gs_obj.resolved_refseq_id)
             Path.touch(output_path / "completed", exist_ok=True)
@@ -352,8 +355,10 @@ def retrieve_antismash_db_data(
             gs_obj.bgc_path = str(download_path)
 
             successful_cnt += 1
-        except Exception:
-            logger.warning(f"Failed to retrieve BGC data from antiSMASH-DB for {genome_id}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to retrieve BGC data from antiSMASH-DB for {genome_id}. Error: {e}"
+            )
             gs_obj.bgc_path = ""
             unsuccessful_cnt += 1
 
