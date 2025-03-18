@@ -153,9 +153,7 @@ def podp_download_and_extract_antismash_data(
 
     resolve_assembly_accessions(gs_dict, genome_records, gs_file)
 
-    fetch_and_process_antismash_db_data(
-        gs_dict, project_download_root, project_extract_root, gs_file
-    )
+    retrieve_antismash_db_data(gs_dict, project_download_root, project_extract_root, gs_file)
 
     # raise and log warning for missing antismash data
     failed_ids = [gs.original_id for gs in gs_dict.values() if not gs.bgc_path]
@@ -241,6 +239,14 @@ def resolve_assembly_accessions(
     Returns:
         None
     """
+    # Check if all genomes are already resolved
+    if all(gs.resolve_attempted for gs in gs_dict.values()):
+        logger.info(
+            "All genome IDs have already been resolved previously, "
+            "skipping genome assembly accessions lookup step."
+        )
+        return
+
     logger.info("Resolving genome assembly accessions...")
 
     successful_cnt = 0
@@ -279,13 +285,13 @@ def resolve_assembly_accessions(
     )
 
 
-def fetch_and_process_antismash_db_data(
+def retrieve_antismash_db_data(
     gs_dict: Mapping[str, GenomeStatus],
     project_download_root: str | PathLike,
     project_extract_root: str | PathLike,
     gs_file: str | PathLike,
 ) -> None:
-    """Fetch and process BGC data from the antiSMASH database.
+    """Retrieves BGC data from the antiSMASH database.
 
     This function attempts to download and extract BGC data from the antiSMASH database
     for genomes that do not yet have BGC data paths and have a resolved RefSeq ID.
@@ -305,7 +311,17 @@ def fetch_and_process_antismash_db_data(
     Returns:
         None
     """
-    logger.info("Attempting to fetch and process BGC data from antiSMASH-DB...")
+    if all(
+        (gs_obj.bgc_path and Path(gs_obj.bgc_path).exists()) or not gs_obj.resolved_refseq_id
+        for gs_obj in gs_dict.values()
+    ):
+        logger.info(
+            "All genomes either already have downloaded antiSMASH data or lack a resolvable "
+            "genome ID. Skipping antiSMASH-DB data retrieval."
+        )
+        return
+
+    logger.info("Attempting to retrive BGC data from antiSMASH-DB...")
 
     successful_cnt = 0
     unsuccessful_cnt = 0
@@ -313,7 +329,9 @@ def fetch_and_process_antismash_db_data(
 
     for genome_id, gs_obj in gs_dict.items():
         if gs_obj.bgc_path and Path(gs_obj.bgc_path).exists():
-            logger.info(f"Genome ID {genome_id} already downloaded to {gs_obj.bgc_path}")
+            logger.info(
+                f"Skipping {genome_id}: antiSMASH results already downloaded to {gs_obj.bgc_path}"
+            )
             skipped_cnt += 1
             continue
         if not gs_obj.resolved_refseq_id:
@@ -335,9 +353,7 @@ def fetch_and_process_antismash_db_data(
 
             successful_cnt += 1
         except Exception:
-            logger.warning(
-                f"Failed to fetch and process BGC data from antiSMASH-DB for {genome_id}"
-            )
+            logger.warning(f"Failed to retrieve BGC data from antiSMASH-DB for {genome_id}")
             gs_obj.bgc_path = ""
             unsuccessful_cnt += 1
 
@@ -345,7 +361,7 @@ def fetch_and_process_antismash_db_data(
     GenomeStatus.to_json(gs_dict, gs_file)
 
     logger.info(
-        f"antiSMASH-DB data retrieval completed. "
+        f"Retrieval of BGC data from antiSMASH-DB completed. "
         f"Successful: {successful_cnt}, Failed: {unsuccessful_cnt}, Skipped: {skipped_cnt}."
     )
 

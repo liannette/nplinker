@@ -195,7 +195,7 @@ def test_empty_id(download_root, extract_root, genome_status_file):
 
 
 # Test `podp_download_and_extract_antismash_data` function
-# when a genome record has already been downloaded and extracted
+# when all genome record has already been downloaded and extracted
 def test_caching(download_root, extract_root, genome_status_file, caplog):
     # Enable logging to capture log messages
     setup_logging()
@@ -213,20 +213,41 @@ def test_caching(download_root, extract_root, genome_status_file, caplog):
 
     podp_download_and_extract_antismash_data(genome_records, download_root, extract_root)
     genome_status_old = GenomeStatus.read_json(genome_status_file)
-    genome_obj = genome_status_old["GCF_000016425.1"]
-    assert Path(genome_obj.bgc_path).exists()
-    assert genome_obj.resolve_attempted
+    gs_obj = genome_status_old["GCF_000016425.1"]
+    assert Path(gs_obj.bgc_path).exists()
+    assert gs_obj.resolve_attempted
+
+    # repeat using the same genome records
     podp_download_and_extract_antismash_data(genome_records, download_root, extract_root)
     assert (
-        f"Genome ID {genome_obj.original_id} already downloaded to {genome_obj.bgc_path}"
-        in caplog.text
+        "All genome IDs have already been resolved previously, "
+        "skipping genome assembly accessions lookup step." in caplog.text
     )
     assert (
-        f"Genome ID {genome_obj.original_id} skipped due to previous failed attempt"
-        not in caplog.text
+        "All genomes either already have downloaded antiSMASH data or lack a resolvable "
+        "genome ID. Skipping antiSMASH-DB data retrieval." in caplog.text
     )
     genome_status_new = GenomeStatus.read_json(genome_status_file)
     assert len(genome_status_old) == len(genome_status_new)
+
+    # add a new genome record
+    genome_records.append(
+        {
+            "genome_ID": {
+                "genome_type": "genome",
+                "RefSeq_accession": "GCF_000016125.1",
+            },
+        }
+    )
+
+    podp_download_and_extract_antismash_data(genome_records, download_root, extract_root)
+    assert f"Skipping {gs_obj.original_id}: lookup already attempted previously" in caplog.text
+    assert (
+        f"Skipping {gs_obj.original_id}: antiSMASH results already downloaded to {gs_obj.bgc_path}"
+        in caplog.text
+    )
+    genome_status_new = GenomeStatus.read_json(genome_status_file)
+    assert len(genome_status_old) == len(genome_status_new) - 1
 
 
 # Test `podp_download_and_extract_antismash_data` function
