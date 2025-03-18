@@ -46,27 +46,16 @@ def download_and_extract_antismash_data(
     extract_path = extract_root / "antismash" / antismash_id
 
     try:
-        if extract_path.exists():
-            _check_extract_path(extract_path)
-        else:
-            extract_path.mkdir(parents=True, exist_ok=True)
+        _prepare_extract_path(extract_path)
 
         for base_url in [ANTISMASH_DB_DOWNLOAD_URL, ANTISMASH_DBV2_DOWNLOAD_URL]:
             url = base_url.format(antismash_id, antismash_id + ".zip")
             download_and_extract_archive(url, download_root, extract_path, antismash_id + ".zip")
             break
 
-        # delete subdirs
-        for subdir_path in list_dirs(extract_path):
-            shutil.rmtree(subdir_path)
+        _cleanup_extracted_files(extract_path)
 
-        # delete unnecessary files
-        files_to_keep = list_files(extract_path, suffix=(".json", ".gbk"))
-        for file in list_files(extract_path):
-            if file not in files_to_keep:
-                os.remove(file)
-
-        logger.info("antiSMASH BGC data of %s is downloaded and extracted.", antismash_id)
+        logger.info(f"antiSMASH BGC data of {antismash_id} is downloaded and extracted.")
 
     except Exception as e:
         shutil.rmtree(extract_path)
@@ -74,7 +63,22 @@ def download_and_extract_antismash_data(
         raise e
 
 
-def _check_extract_path(extract_path: Path):
-    # check if extract_path is empty
-    if any(extract_path.iterdir()):
-        raise ValueError(f'Nonempty directory: "{extract_path}"')
+def _cleanup_extracted_files(extract_path: str | PathLike) -> None:
+    # delete subdirs
+    for subdir_path in list_dirs(extract_path):
+        shutil.rmtree(subdir_path)
+
+    # delete unnecessary files
+    files_to_keep = list_files(extract_path, suffix=(".json", ".gbk"))
+    for file in list_files(extract_path):
+        if file not in files_to_keep:
+            os.remove(file)
+
+
+def _prepare_extract_path(extract_path: str | PathLike) -> None:
+    if extract_path.exists():
+        # check if extract_path is empty
+        if any(extract_path.iterdir()):
+            raise ValueError(f'Nonempty directory: "{extract_path}"')
+    else:
+        extract_path.mkdir(parents=True, exist_ok=True)
